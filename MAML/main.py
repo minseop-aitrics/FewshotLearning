@@ -133,6 +133,8 @@ if __name__=='__main__':
             acc, loss_b, _ = sess.run(run_list, feed_dict)
             avger += [np.mean(acc), np.mean(loss_b[-1]), 0, time.time() - stt]
             
+#            p1 = sess.run(mamlnet.bnparm, feed_dict)
+#            print (p1)
 #            p1, p2 = sess.run([mamlnet.outputs['lvlossb'],
 #                mamlnet.outputs['lossb']], feed_dict)
 #            print (np.mean(p1, (1,2)))

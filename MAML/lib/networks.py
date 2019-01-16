@@ -6,9 +6,9 @@ class Network(object):
     def __init__(self, name):
         self.name = name
 
-    def batch_norm(self, x, training, decay=0.9, name='batch_norm', reuse=None):
+    def batch_norm(self, x, training, decay=0.9, name='batch_norm', reuse=False):
         with tf.variable_scope(name, reuse=reuse):
-            dim = x.shape[1].value
+            dim = x.shape[-1].value
             moving_mean = tf.get_variable('moving_mean', [dim],
                     initializer=tf.zeros_initializer(), trainable=False)
             moving_var = tf.get_variable('moving_var', [dim],
@@ -19,7 +19,7 @@ class Network(object):
                     initializer=tf.ones_initializer())
 
             if training:
-                x, batch_mean, batch_var = tf.nn.fused_batch_norm(x, gamma, beta, data_format='NCHW')
+                x, batch_mean, batch_var = tf.nn.fused_batch_norm(x, gamma, beta, data_format='NHWC')
                 update_mean = moving_mean.assign_sub((1-decay)*(moving_mean - batch_mean))
                 update_var = moving_var.assign_sub((1-decay)*(moving_var - batch_var))
                 tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update_mean)
@@ -27,7 +27,7 @@ class Network(object):
             else:
                 x, batch_mean, batch_var = tf.nn.fused_batch_norm(x, gamma, beta,
                         mean=moving_mean, variance=moving_var, is_training=False,
-                        data_format='NCHW')
+                        data_format='NHWC')
             return x
 
 class MAMLNet(Network):
@@ -71,8 +71,10 @@ class MAMLNet(Network):
         weights = self.construct_weights()
 
         meta_lossbs = []; meta_predbs = []; # (# metabatch, # inner updates)
-        _ = self.forward(ip['sx'][0], weights, reuse=False)
-        
+        qx_all = tf.reshape(ip['qx'], [-1,84,84,3])
+        _ = self.forward(qx_all, weights, reuse=False, update=isTr)
+        # only update batch norm params in here
+            
         def singlebatch_graph(inputs):
             sx, sy, qx, qy = inputs
             # when sinlge batch is given, get the lossbs, predbs
@@ -142,10 +144,16 @@ class MAMLNet(Network):
             opt = tf.train.AdamOptimizer(ip['lr_beta'])
             gvs = opt.compute_gradients(opt_loss)
             gvs = [(tf.clip_by_value(grad, -10, 10), var) for grad, var in gvs]
-            self.train_op = opt.apply_gradients(gvs)
-            self.gvs = gvs
+            update_op = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+            for u in update_op:
+                print (u)
+            with tf.control_dependencies(update_op):
+                self.train_op = opt.apply_gradients(gvs)
+        
+        with tf.variable_scope('4bn', reuse=True):
+            moving_mean = tf.get_variable('moving_var', [32])
+            self.bnparm = moving_mean
     
-
         self.outputs['accuracy'] = \
                 [tf_acc(meta_predbs[-1][mi], ip['qy'][mi]) \
                 for mi in range(self.mbsize)]
@@ -168,10 +176,6 @@ class MAMLNet(Network):
                     [3,3,32,32], initializer=conv_init, dtype=f32)
             weights['bias{}'.format(i)] = tf.get_variable('bias{}'.format(i),
                     initializer=tf.zeros([32]))
-#            weights['beta{}'.format(i)] = tf.get_variable('beta{}'.format(i),
-#                    initializer=tf.zeros([32]))
-#            weights['gamma{}'.format(i)] = tf.get_variable('gamma{}'.format(i),
-#                    initializer=tf.ones([32]))
 
         weights['w5'] = tf.get_variable('w5', 
                 [32*5*5, self.nway], initializer=fc_init)
@@ -179,20 +183,18 @@ class MAMLNet(Network):
                 initializer=tf.zeros([self.nway]))
         return weights
 
-    def forward(self, x, weights, reuse=False, scope=''):
-
+    def forward(self, x, weights, reuse=False, scope='', update=False):
         def conv(x, w, b, reuse, scope):
             h = tf.nn.conv2d(x, w, [1,1,1,1], 'SAME') + b
-            h = tf.contrib.layers.batch_norm(h, activation_fn=tf.nn.relu,
-                    reuse=reuse, scope=scope)
-            #h = batch_norm(h, True, name=scope+'bn', reuse=reuse)
-            #h, _, _ = tf.nn.fused_batch_norm(h, gamma, beta)
+            #h = tf.contrib.layers.batch_norm(h, activation_fn=tf.nn.relu,
+            #        reuse=reuse, scope=scope)
+            h = tf.nn.relu(self.batch_norm(h, update, name=scope+'bn', 
+                reuse=reuse))
             return tf.nn.max_pool(h, [1,2,2,1], [1,2,2,1], 'VALID')
     
         for i in range(1, 5):
             x = conv(x, weights['conv{}'.format(i)], weights['bias{}'.format(i)],
                     reuse, scope+'{}'.format(i))
-                    #weights['beta{}'.format(i)], weights['gamma{}'.format(i)], 
         dim = 1
         for s in x.get_shape().as_list()[1:]:
             dim *= s

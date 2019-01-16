@@ -11,10 +11,10 @@
 # at the test time.
 
 
-gpu=3
+gpu=5
 K=1  # kshot
 MtLr=1e-3  # outer gradient descent step size
-InLr=3e-2  # inner gradient descent step size
+InLr=1e-2  # inner gradient descent step size
 STG=0     # stop gradient
 InIt=5    # inner loop iteration
 

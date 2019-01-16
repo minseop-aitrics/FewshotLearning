@@ -3,10 +3,10 @@
 # reproduced result : 
 
 
-gpu=2
+gpu=5
 K=5  # kshot
 MtLr=1e-3  # outer gradient descent step size
-InLr=3e-2  # inner gradient descent step size
+InLr=5e-3  # inner gradient descent step size
 STG=0     # stop gradient
 InIt=5    # inner loop iteration
 
