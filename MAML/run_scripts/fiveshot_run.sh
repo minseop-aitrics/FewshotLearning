@@ -1,13 +1,13 @@
 # 5-way 5-shot miniImagenet test
 # reported result : 63.11 (0.91) 
-# reproduced result : 
+# reproduced result : 64.127 (0.721)
 
 
-gpu=2
+gpu=3
 K=5  # kshot
 MtLr=1e-3  # outer gradient descent step size
 InLr=3e-2  # inner gradient descent step size
-STG=0     # stop gradient
+STG=1     # stop gradient
 InIt=5    # inner loop iteration
 
 # if you want test, uncomment resume and the last line

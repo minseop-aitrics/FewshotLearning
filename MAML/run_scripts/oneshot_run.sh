@@ -1,6 +1,6 @@
 # 5-way 1-shot miniImagenet test
 # reported result : 48.70 (1.84) 
-# reproduced result : 48.58 (0.81) 
+# reproduced result : 48.564 (0.840)
 # - reported result is acheived from experimets with query size 1 (--qs 1)
 # and this is not a convention for the ordinary few-shot classification test,
 # which is the query size is 15. The size of test set is 15 times smaller
@@ -15,12 +15,12 @@ gpu=3
 K=1  # kshot
 MtLr=1e-3  # outer gradient descent step size
 InLr=3e-2  # inner gradient descent step size
-STG=0     # stop gradient
+STG=1     # stop gradient
 InIt=5    # inner loop iteration
 
 # if you want test, uncomment resume and the last line
 params=K${K}_MtLr${MtLr}_STG${STG}_InIt${InIt}_InLr${InLr}
-#resume=models/mamlnet/${params}30000
+#resume=models/mamlnet/${params}_30000
 
 CUDA_VISIBLE_DEVICES=${gpu} python main.py \
     --ks $K \
@@ -29,4 +29,4 @@ CUDA_VISIBLE_DEVICES=${gpu} python main.py \
     --in_lr ${InLr} \
     --ini  ${InIt} \
     --parm ${params} \
-#    --train 0 --resume ${resume} --vali 600 --qs 15 \
+    #--train 0 --resume ${resume} --vali 600 --qs 15 \
