@@ -96,8 +96,7 @@ if __name__=='__main__':
             stt = time.time()
             cur_epoch = i * (nway * qsize) // train_gen.dataset_size[args.dataset_name]
             lr = args.lr if i < 0.7 * max_iter else args.lr*.1
-            sx, sy, qx, qy = train_gen.get_episode(nway, kshot, qsize, 
-                    dataset_name=args.dataset_name, normalize=args.norm)
+            sx, sy, qx, qy = train_gen.get_episode(nway, kshot, qsize)
             fd = {\
                 protonet.inputs['sx']: sx,
                 protonet.inputs['qx']: qx,
