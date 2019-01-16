@@ -1,4 +1,4 @@
 models
 miniImagenet
-__pycache__
+__pycache__/
 *.pyc
