@@ -3,11 +3,20 @@ import os
 import pickle
 import pdb
 import cv2
+import argparse
 
 # miniImagenet pkl file is downloaded from
 # https://github.com/renmengye/few-shot-ssl-public
 
-pkl_root = '/home/mike/DataSet/AAAI/aaai_raw/miniImagenet'
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--datadir', 
+            default='/home/mike/DataSet/AAAI/aaai_raw/miniImagenet')
+    args = parser.parse_args()
+    return args
+
+args = parse_args()
+pkl_root = args.datadir
 out_root = 'miniImagenet'
 
 for dsettype in ['train', 'val', 'test']:

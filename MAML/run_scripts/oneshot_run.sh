@@ -15,7 +15,7 @@ gpu=3
 K=1  # kshot
 MtLr=1e-3  # outer gradient descent step size
 InLr=3e-2  # inner gradient descent step size
-STG=1     # stop gradient
+STG=0     # stop gradient
 InIt=5    # inner loop iteration
 
 # if you want test, uncomment resume and the last line

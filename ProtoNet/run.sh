@@ -1,16 +1,16 @@
-gpu=3
-W=5
-S=1
-#name=${W}w${N}n${S}s_finset_5con
+gpu=7
+W=5 # n-way 
+S=5 # k-shot
 name=${W}w${S}s_protonet_baseline
 log="models/${name}/log.txt"
 mkdir -p models/${name}
 
-#echo $log
-#exec &> >(tee -a "$log")
+# to get test result, uncomment last line
+echo $log
+exec &> >(tee -a "$log")
 CUDA_VISIBLE_DEVICES=$gpu python -u main.py \
     --nw $W --ks $S --name $name --data ../miniImagenet \
-    --pr 1 --train 0
+#    --pr 1 --train 0
 
 
 # ------------------
@@ -18,5 +18,5 @@ CUDA_VISIBLE_DEVICES=$gpu python -u main.py \
 # ------------------
 # trained on 5way-1shot 
 # tested on 5way-1shot (matched way-shot)
-# Acc : 51.780 (0.973) 
+# Acc : 52.547 (0.766)
 # maybe its because of the fused batch-norm ??
