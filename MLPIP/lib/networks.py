@@ -80,21 +80,24 @@ class Network(object):
         #sig_w = tf.clip_by_value(tf.exp(sig_w * .5), 1e-4, 10.)
         return mu_w, sig_w
 
+
 class MLPIP(Network):
-    def __init__(self, name, nway, kshot, qsize, isTr, reuse=False):
+    # meta-batch version
+    def __init__(self, name, nway, kshot, qsize, mbsize, isTr=True, reuse=False):
         self.name = name
         self.nway = nway
         self.kshot = kshot
         self.qsize = qsize
+        self.mbsize = mbsize
+        self.n_samples = 10
         self.cdim = 64
         self.hdim = 256
 
         self.inputs = {\
-                'sx': tf.placeholder(tf.float32, [None,84,84,3]),
-                'qx': tf.placeholder(tf.float32, [None,84,84,3]),
-                'qy': tf.placeholder(tf.float32, [None,None]),
-                'lr': tf.placeholder(tf.float32),
-                'tr': tf.placeholder(tf.bool)}
+                'sx': tf.placeholder(tf.float32, [mbsize,nway*kshot,84,84,3]),
+                'qx': tf.placeholder(tf.float32, [mbsize,nway*qsize,84,84,3]),
+                'qy': tf.placeholder(tf.float32, [mbsize,nway*qsize,nway]),
+                'lr': tf.placeholder(tf.float32)}
         self.outputs = {}
 
         with tf.variable_scope(name):
@@ -102,23 +105,65 @@ class MLPIP(Network):
 
     def _build_network(self, isTr, reuse):
         ip = self.inputs
-        sq_inputs = tf.concat([ip['sx'], ip['qx']], axis=0)
-        sq_outputs = self.simple_conv(sq_inputs, reuse, isTr)
-        support_h = sq_outputs[:self.nway*self.kshot]
-        query_h = sq_outputs[self.nway*self.kshot:]
+        # let just feed all of them
+        sx_all = tf.reshape(ip['sx'], [-1,84,84,3]) # (mbsize*nway*kshot, -)
+        qx_all = tf.reshape(ip['qx'], [-1,84,84,3]) # (mbsize*nway*qsize, -)
+        x_all = tf.concat([sx_all, qx_all], axis=0) # (m*n*k+m*n*q, -)
+        
+        h_all = self.simple_conv(x_all, reuse, isTr)
+        support_h = h_all[:self.mbsize*self.nway*self.kshot]
+        support_h = tf.reshape(support_h, [self.mbsize, self.nway*self.kshot,-1])
 
-        mu_ws, sig_ws = self.qpsi_H(support_h, reuse=reuse)
-        samples = normal(mu_ws, sig_ws).sample()
-        # samples.shape : (n, hdim)
-        pred = tf.matmul(query_h, samples, transpose_b=True)
-        pred = tf.nn.softmax(pred)
-        self.outputs['pred'] = pred
-        self.outputs['loss'] = cross_entropy(pred, ip['qy'])
-        self.outputs['acc'] = tf_acc(pred, ip['qy'])
-        self.probe = [mu_ws, sig_ws]
+        query_h = h_all[self.mbsize*self.nway*self.kshot:]
+        query_h = tf.reshape(query_h, [self.mbsize, self.nway*self.qsize, -1])
+        
+        _, _ = self.qpsi_H(support_h[0], reuse=reuse)
+
+        def single_batch_process(inputs):
+            sh, qh, qy = inputs # support_h, query_h, qeury_y
+            mu_ws, sig_ws = self.qpsi_H(sh, reuse=True)
+            samples = normal(mu_ws, sig_ws).sample(self.n_samples)
+            psis = tf.transpose(samples, [0,2,1])
+            xs = tf.tile(tf.expand_dims(qh, 0), [self.n_samples,1,1])
+#            pred = tf.nn.softmax(tf.matmul(xs, psis))
+#            pred = tf.reduce_mean(pred, axis=0)
+            pred = tf.reduce_mean(tf.matmul(xs, psis), axis=0)
+            pred = tf.nn.softmax(pred)
+            loss = cross_entropy(pred, qy)
+            acc = tf_acc(pred, qy)
+            return loss, acc
+
+        def simple_baseline(inputs): 
+            # this is for meta-batch prototypical network 
+            sh, qh, qy = inputs
+            proto_vec = tf.reshape(sh, [self.nway, self.kshot, self.hdim])
+            proto_vec = tf.reduce_mean(proto_vec, axis=1)
+
+            _p = tf.expand_dims(proto_vec, axis=0)
+            _q = tf.expand_dims(qh, axis=1)
+            emb = (_p-_q)**2
+            dist = tf.reduce_mean(emb, axis=2)
+            pred = tf.nn.softmax(-dist)
+            loss = cross_entropy(pred, qy)
+            acc = tf_acc(pred, qy)
+            return loss, acc
+
+        elems = (support_h, query_h, ip['qy'])
+        out_dtype = (tf.float32, tf.float32)
 
 
+        loss, acc = tf.map_fn(single_batch_process, elems, dtype=out_dtype,
+                parallel_iterations=self.mbsize)
 
+        self.outputs['loss'] = tf.reduce_mean(loss)
+        self.outputs['acc'] = acc
+
+        if isTr:
+            opt = tf.train.AdamOptimizer(ip['lr'])
+            update_op = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+            with tf.control_dependencies(update_op):
+                self.train_op = opt.minimize(loss)
+            
 
 
 def cross_entropy(pred, label): 

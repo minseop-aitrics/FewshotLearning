@@ -1,58 +1,73 @@
-#import _init_paths
-import numpy as np 
 import tensorflow as tf 
+import numpy as np 
 import argparse
 import time
 import os
 import pdb
-
 from lib.episode_generator import EpisodeGenerator
 from lib.networks import MLPIP
 
 def parse_args():
     parser = argparse.ArgumentParser(description='MLPIP reproducing')
     parser.add_argument('--init', dest='initial_step', default=0, type=int) 
-    parser.add_argument('--maxe', dest='max_epoch', default=100, type=int)
+    parser.add_argument('--maxi', dest='max_iter', default=30000, type=int)
     parser.add_argument('--qs', dest='qsize', default=15, type=int)
     parser.add_argument('--nw', dest='nway', default=5, type=int)
     parser.add_argument('--ks', dest='kshot', default=1, type=int)
-    parser.add_argument('--sh', dest='show_epoch', default=1, type=int)
-    parser.add_argument('--sv', dest='save_epoch', default=10, type=int)
+    parser.add_argument('--showi', dest='show_step', default=100, type=int)
+    parser.add_argument('--savei', dest='save_step', default=2000, type=int)
     parser.add_argument('--pr', dest='pretrained', default=False, type=bool)
     parser.add_argument('--data', dest='dataset_dir', default='../miniImagenet')
     parser.add_argument('--model', dest='model_dir', default='models')
     parser.add_argument('--dset', dest='dataset_name', default='miniImagenet')
-    parser.add_argument('--name', dest='model_name', default='protonet')
+    parser.add_argument('--name', dest='model_name', default='mamlnet')
+    parser.add_argument('--parm', dest='param_str', default='default')
+    parser.add_argument('--gpufrac', dest='gpufraction', default=0.90, type=float)
     parser.add_argument('--lr', dest='lr', default=1e-3, type=float)
+    parser.add_argument('--vali', dest='val_iter', default=50, type=int)
     parser.add_argument('--train', dest='train', default=1, type=int)
-    parser.add_argument('--vali', dest='val_iter', default=60, type=int)
+    parser.add_argument('--resume', dest='resume', default=None)
     args = parser.parse_args()
     return args
 
-def validate(test_net, test_gen):
-    accs, losses = [], []
+def validate(test_net, ep_test):
+    val_losses, val_accs = [], []
     np.random.seed(2)
     for _ in range(args.val_iter):
-        sx, sy, qx, qy = test_gen.get_episode(5, args.kshot, args.qsize)
-        fd = {\
-            test_net.inputs['sx']: sx,
-            test_net.inputs['qx']: qx,
-            test_net.inputs['qy']: qy}
-        outputs = [test_net.outputs['acc'], test_net.outputs['loss']]
-        acc, loss = sess.run(outputs, fd)
-        accs.append(acc)
-        losses.append(loss)
+        sx, sy, qx, qy = [], [], [], []
+        for _ in range(1): # only one meta-batch at test time
+            sxt, syt, qxt, qyt = ep_test.get_episode(nway, kshot, qsize)
+            sx.append(sxt)
+            sy.append(syt)
+            qx.append(qxt)
+            qy.append(qyt)
+        ip = test_net.inputs
+        feed_dict = {\
+                ip['sx']: sx, 
+                ip['qx']: qx, 
+                ip['qy']: qy}
+        op = test_net.outputs
+        run_list = [op['acc'], op['loss']]
+        
+        acc, loss_b = sess.run(run_list, feed_dict)
+        val_losses.append(loss_b)
+        val_accs.append(np.mean(acc))
+
     print ('Validation - ACC: {:.3f} ({:.3f})'
         '| LOSS: {:.3f}   '\
-        .format(np.mean(accs) * 100., 
-        np.std(accs) * 100. * 1.96 / np.sqrt(args.val_iter),
-        np.mean(losses)))
+        .format(np.mean(val_accs) * 100., 
+        np.std(val_accs) * 100. * 1.96 / np.sqrt(args.val_iter),
+        np.mean(loss_b)))
     np.random.seed()
 
 if __name__=='__main__': 
     args = parse_args() 
     print ('='*50) 
     print ('args::') 
+    if args.kshot == 1:
+        args.meta_batch_size = 8
+    if args.kshot == 5:
+        args.meta_batch_size = 4
     for arg in vars(args):
         print ('%15s: %s'%(arg, getattr(args, arg)))
     print ('='*50) 
@@ -60,69 +75,76 @@ if __name__=='__main__':
     nway = args.nway
     kshot = args.kshot
     qsize = args.qsize 
-    test_kshot = args.kshot
-
-    lr_ph = tf.placeholder(tf.float32) 
-    train_net = MLPIP(args.model_name, nway, kshot, qsize, isTr=True)
-    loss = train_net.outputs['loss']
-    acc = train_net.outputs['acc']
     
-    # only evaluates 5way - kshot
-    test_net = MLPIP(args.model_name, 5, test_kshot, qsize, isTr=False, reuse=True)
+    train_net = MLPIP(args.model_name, nway, kshot, qsize, 
+        args.meta_batch_size)
 
-    opt = tf.train.AdamOptimizer(lr_ph) 
-    update_op = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-    with tf.control_dependencies(update_op):
-        train_op = opt.minimize(loss) 
-    saver = tf.train.Saver()
-    
-    sess = tf.Session()
+    test_net = MLPIP(args.model_name, nway, kshot, qsize, mbsize=1,
+            isTr=False, reuse=True)
+        
+    sess = tf.Session() 
     sess.run(tf.global_variables_initializer())
-    if args.pretrained:
-        loc = os.path.join(args.model_dir,
-                args.model_name, 
-                args.dataset_name + '.ckpt')
-        saver.restore(sess, loc)
+    
+    saver = tf.train.Saver()
 
-    train_gen = EpisodeGenerator(args.dataset_dir, 'train')
-    test_gen = EpisodeGenerator(args.dataset_dir, 'test')
+    if args.resume is not None:
+        print ('restore from at : {}'.format(args.resume))
+        saver.restore(sess, args.resume)
+
+    ep_train = EpisodeGenerator(args.dataset_dir, 'train')
+    ep_test = EpisodeGenerator(args.dataset_dir, 'test')
+
+    vlist = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
+    for i, v in enumerate(vlist):
+        print (i, v)
+
     if args.train:
-        max_iter = train_gen.dataset_size[args.dataset_name] * args.max_epoch \
-                // (nway * qsize)
-        show_step = args.show_epoch * max_iter // args.max_epoch
-        save_step = args.save_epoch * max_iter // args.max_epoch
         avger = np.zeros([4])
-        for i in range(1, max_iter+1): 
+        for i in range(1, args.max_iter+1):
             stt = time.time()
-            cur_epoch = i * (nway * qsize) // train_gen.dataset_size[args.dataset_name]
-            lr = args.lr if i < 0.7 * max_iter else args.lr*.1
-            sx, sy, qx, qy = train_gen.get_episode(nway, kshot, qsize)
-            fd = {\
-                train_net.inputs['sx']: sx,
-                train_net.inputs['qx']: qx,
-                train_net.inputs['qy']: qy,
-                lr_ph: lr}
-            p1, p2, _ = sess.run([acc, loss, train_op], fd)
-            avger += [p1, p2, 0, time.time() - stt] 
+            lr = args.lr if i < 0.7 * args.max_iter else args.lr*.1
 
-            if i % show_step == 0 and i != 0: 
-                avger /= show_step
-                print ('========= epoch : {:8d}/{} ========='\
-                        .format(cur_epoch, args.max_epoch))
+            sx = []; sy = []; qx = []; qy = []
+            for _ in range(args.meta_batch_size):
+                sxt, syt, qxt, qyt = ep_train.get_episode(nway, kshot, qsize)
+                sx.append(sxt)
+                sy.append(syt) 
+                qx.append(qxt) 
+                qy.append(qyt)
+
+            # qx : (metabatchsize, nk, img_size)
+            # sx : (metabatchsize, nq, img_size)
+            ip = train_net.inputs
+            feed_dict = {ip['sx']: sx, 
+                    ip['qx']: qx, ip['qy']: qy, ip['lr']: lr}
+            op = train_net.outputs
+            run_list = [op['acc'], op['loss'], train_net.train_op]
+
+            
+            acc, loss, _ = sess.run(run_list, feed_dict)
+            avger += [np.mean(acc), loss, 0, time.time() - stt]
+            
+            # get validation stats
+            if i % args.show_step == 0 and i != 0: 
+                avger /= args.show_step
+                print ('========= STEP : {:8d}/{} ========='\
+                        .format(i, args.max_iter))
                 print ('Training - ACC: {:.3f} '
                     '| LOSS: {:.3f}   '
                     '| lr : {:.3f}    '
                     '| in {:.2f} secs '\
                     .format(avger[0], 
-                        avger[1], lr, avger[3]*show_step))
-                validate(test_net, test_gen)
+                        avger[1], lr, avger[3]*args.show_step))
                 avger[:] = 0
+                validate(test_net, ep_test)
 
-            if i % save_step == 0 and i != 0: 
+
+
+            if i % args.save_step == 0 and i != 0: 
                 out_loc = os.path.join(args.model_dir, # models/
-                        args.model_name, # bline/
-                        args.dataset_name + '.ckpt')  # cifar100.ckpt
+                        args.model_name, # mamlnet/
+                        args.param_str) + '_{}'.format(i) # 5way_1shot_model.ckpt
                 print ('saved at : {}'.format(out_loc))
                 saver.save(sess, out_loc)
     else: # if test only
-        validate(test_net, test_gen)
+        validate(test_net, ep_test)
