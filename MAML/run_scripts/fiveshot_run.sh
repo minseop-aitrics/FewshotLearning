@@ -3,15 +3,15 @@
 # reproduced result : 64.127 (0.721)
 
 
-gpu=3
+gpu=7
 K=5  # kshot
 MtLr=1e-3  # outer gradient descent step size
 InLr=3e-2  # inner gradient descent step size
 STG=0     # stop gradient
 InIt=5    # inner loop iteration
 
-# if you want test, uncomment resume and the last line
 params=K${K}_MtLr${MtLr}_STG${STG}_InIt${InIt}_InLr${InLr}
+# if you want test, uncomment resume and the last line
 #resume=models/mamlnet/${params}_30000
 
 CUDA_VISIBLE_DEVICES=${gpu} python main.py \

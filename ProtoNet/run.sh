@@ -1,4 +1,4 @@
-gpu=7
+gpu=6
 W=5 # n-way 
 S=5 # k-shot
 name=${W}w${S}s_protonet_baseline
@@ -10,7 +10,7 @@ echo $log
 exec &> >(tee -a "$log")
 CUDA_VISIBLE_DEVICES=$gpu python -u main.py \
     --nw $W --ks $S --name $name --data ../miniImagenet \
-#    --pr 1 --train 0
+    #--pr 1 --train 0 --vali 600
 
 
 # ------------------

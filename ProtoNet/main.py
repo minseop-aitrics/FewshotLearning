@@ -25,7 +25,7 @@ def parse_args():
     parser.add_argument('--name', dest='model_name', default='protonet')
     parser.add_argument('--lr', dest='lr', default=1e-3, type=float)
     parser.add_argument('--train', dest='train', default=1, type=int)
-    parser.add_argument('--vali', dest='val_iter', default=600, type=int)
+    parser.add_argument('--vali', dest='val_iter', default=60, type=int)
     args = parser.parse_args()
     return args
 
@@ -106,6 +106,7 @@ if __name__=='__main__':
             avger += [p1, p2, 0, time.time() - stt] 
 
             if i % show_step == 0 and i != 0: 
+                avger /= show_step
                 print ('========= epoch : {:8d}/{} ========='\
                         .format(cur_epoch, args.max_epoch))
                 print ('Training - ACC: {:.3f} '
