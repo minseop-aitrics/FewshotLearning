@@ -14,14 +14,14 @@
 gpu=4
 K=1  # kshot
 #Lr=2.5e-4  # outer gradient descent step size
-Lr=1e-3
+Lr=2.5e-4
 
-params=K${K}_MLPIP
+params=K${K}_LR${Lr}_MLPIP
 # if you want test, uncomment resume and the last line
-resume=models/mamlnet/${params}_15000
+#resume=models/mamlnet/${params}_15000
 
 CUDA_VISIBLE_DEVICES=${gpu} python main.py \
     --ks $K \
     --lr ${Lr} \
     --parm ${params} \
-    --train 0 --resume ${resume} --vali 600 --qs 15 \
+    #--train 0 --resume ${resume} --vali 600 --qs 15 \

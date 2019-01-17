@@ -105,7 +105,7 @@ class MLPIP(Network):
 
     def _build_network(self, isTr, reuse):
         ip = self.inputs
-        # let just feed all of them
+        # let just feed all of them for batch stats.
         sx_all = tf.reshape(ip['sx'], [-1,84,84,3]) # (mbsize*nway*kshot, -)
         qx_all = tf.reshape(ip['qx'], [-1,84,84,3]) # (mbsize*nway*qsize, -)
         x_all = tf.concat([sx_all, qx_all], axis=0) # (m*n*k+m*n*q, -)
@@ -117,6 +117,7 @@ class MLPIP(Network):
         query_h = h_all[self.mbsize*self.nway*self.kshot:]
         query_h = tf.reshape(query_h, [self.mbsize, self.nway*self.qsize, -1])
         
+        # for reuse term 
         _, _ = self.qpsi_H(support_h[0], reuse=reuse)
 
         def single_batch_process(inputs):
