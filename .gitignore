@@ -2,3 +2,5 @@ models
 miniImagenet
 __pycache__/
 *.pyc
+data/
+MT-net/data
