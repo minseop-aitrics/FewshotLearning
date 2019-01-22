@@ -88,7 +88,8 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     num_classes = FLAGS.num_classes # for classification, 1 otherwise
     multitask_weights, reg_weights = [], []
 
-    for itr in range(resume_itr, FLAGS.pretrain_iterations + FLAGS.metatrain_iterations):
+    for itr in range(resume_itr+1, 
+            FLAGS.pretrain_iterations + FLAGS.metatrain_iterations+1):
         xa, xb, ya, yb = data_generator.data_queue('train', FLAGS.meta_batch_size, num_classes, FLAGS.kshot)
         feed_dict = {model.inputa: xa, model.inputb: xb, model.labela: ya, model.labelb: yb}
 
@@ -114,7 +115,8 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
 
         if itr != 0 and itr % SAVE_INTERVAL == 0:
             saver.save(sess, FLAGS.logdir + '/' + exp_string + '/model' + str(itr))
-            test(model, saver, sess, exp_string, data_generator, FLAGS.num_updates)
+            test(model, saver, sess, exp_string, data_generator, FLAGS.num_updates, 
+                    mode='val')
 
         # sinusoid is infinite data, so no need to test on meta-validation set.
 #        if itr != 0 and itr % TEST_PRINT_INTERVAL == 0 and FLAGS.datasource not in ['sinusoid', 'polynomial']:
@@ -145,25 +147,23 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     saver.save(sess, FLAGS.logdir + '/' + exp_string + '/model' + str(itr))
 
 
-def test(model, saver, sess, exp_string, data_generator, test_num_updates=None):
+def test(model, saver, sess, exp_string, data_generator, test_num_updates=None, mode='test'):
     num_classes = FLAGS.num_classes # for classification, 1 otherwise
 #    np.random.seed(1)
 #    random.seed(1)
     metaval_accuracies = []
+    print_test_class_acc = False
     
-    per_class_acc = np.zeros([len(data_generator.test_data), 2])
+    per_class_acc = np.zeros([len(data_generator.get_dataset(mode)), 2])
     per_class_avg = []
     NUM_TEST_POINTS = 600
     for point_n in range(NUM_TEST_POINTS):
-        if point_n % 100 == 0:
-            print (point_n)
-        xa, xb, ya, yb, task_ind = data_generator.data_queue('test', FLAGS.meta_batch_size, num_classes, debug=True)
+        xa, xb, ya, yb, task_ind = data_generator.data_queue(mode, FLAGS.meta_batch_size, num_classes, debug=True)
         feed_dict = {model.inputa: xa, model.inputb: xb, model.labela: ya, model.labelb: yb}
-
         result = sess.run([model.metaval_total_accuracy1] + model.metaval_total_accuracies2, feed_dict)
         metaval_accuracies.append(result)
 
-        if True:
+        if print_test_class_acc:
             # get per class accuracy
             preds = sess.run(model.outputbs, feed_dict)
             p = np.argmax(preds[FLAGS.num_updates-1][0], 1)
@@ -175,16 +175,16 @@ def test(model, saver, sess, exp_string, data_generator, test_num_updates=None):
             
             per_class_acc[task_ind, 1] += 1
             per_class_acc[task_ind[right], 0] += 1
-
+    
     np.set_printoptions(4)
-    print ('classwise accuracy')
-    print (per_class_acc[:, 0] \
-            / per_class_acc[:, 1] * 100)
+    if print_test_class_acc:
+        print ('classwise accuracy')
+        print (per_class_acc[:, 0] \
+                / per_class_acc[:, 1] * 100)
 
-    print ('per class avg accuracy')
-    print ('  {:.4f} +- {:.4f}'.format(np.mean(per_class_avg)*100., 
-        np.std(per_class_avg)*100.*1.96/np.sqrt(NUM_TEST_POINTS)))
-            
+        print ('per class avg accuracy')
+        print ('  {:.4f} +- {:.4f}'.format(np.mean(per_class_avg)*100., 
+            np.std(per_class_avg)*100.*1.96/np.sqrt(NUM_TEST_POINTS)))
 
     metaval_accuracies = np.array(metaval_accuracies)
     means = np.mean(metaval_accuracies, 0)
@@ -195,6 +195,7 @@ def test(model, saver, sess, exp_string, data_generator, test_num_updates=None):
     print('   {:.4f} +- {:.4f}'.format(means[-1]*100., ci95[-1]*100.))
     filename = FLAGS.logdir + '/' + exp_string + '/' + 'test_ubs' + str(FLAGS.update_batch_size) + \
                '_stepsize' + str(FLAGS.update_lr) + '_testiter' + str(FLAGS.test_iter)
+    print (filename)
 #    with open(filename + '.pkl', 'w') as f:
 #        pickle.dump({'mses': metaval_accuracies}, f)
 #    with open(filename + '.csv', 'w') as f:
@@ -203,7 +204,6 @@ def test(model, saver, sess, exp_string, data_generator, test_num_updates=None):
 #        writer.writerow(means)
 #        writer.writerow(stds)
 #        writer.writerow(ci95)
-
 
 def main():
     if FLAGS.datasource in ['sinusoid', 'polynomial']:
@@ -226,20 +226,7 @@ def main():
     
     data_generator = TieredGenerator(seed=0)
 
-#    if FLAGS.datasource == 'sinusoid':
-#        #data_generator = DataGenerator(FLAGS.update_batch_size*2, FLAGS.meta_batch_size)
-#        # Use 10 val samples (meta-SGD, 4.1 paragraph 2 first line)
-#        data_generator = DataGenerator(FLAGS.update_batch_size+10, FLAGS.meta_batch_size)
-#    elif FLAGS.datasource == 'polynomial':
-#        if FLAGS.train:
-#            data_generator = PolyDataGenerator(FLAGS.update_batch_size+10, FLAGS.meta_batch_size)
-#        else:
-#            data_generator = PolyDataGenerator(4000, FLAGS.meta_batch_size)
-#    else:
-#        assert FLAGS.datasource == 'omniglot'
-#        data_generator = DataGenerator(FLAGS.update_batch_size*2, FLAGS.meta_batch_size)  # only use one datapoint for testing to save memory
 
-    #dim_output = data_generator.dim_output
     dim_input = 84*84*3
     dim_output = FLAGS.num_classes
 
@@ -255,20 +242,7 @@ def main():
                 [FLAGS.meta_batch_size,None,dim_output])
 
         if FLAGS.train: # only construct training model if needed
-#            random.seed(5)
-#            image_tensor, label_tensor = data_generator.make_data_tensor()
-#            inputa = tf.slice(image_tensor, [0,0,0], [-1,num_classes*FLAGS.update_batch_size, -1])
-#            inputb = tf.slice(image_tensor, [0,num_classes*FLAGS.update_batch_size, 0], [-1,-1,-1])
-#            labela = tf.slice(label_tensor, [0,0,0], [-1,num_classes*FLAGS.update_batch_size, -1])
-#            labelb = tf.slice(label_tensor, [0,num_classes*FLAGS.update_batch_size, 0], [-1,-1,-1])
             input_tensors = {'inputa': inputa, 'inputb': inputb, 'labela': labela, 'labelb': labelb}
-
-#        random.seed(6)
-#        image_tensor, label_tensor = data_generator.make_data_tensor(train=False)
-#        inputa = tf.slice(image_tensor, [0,0,0], [-1,num_classes*FLAGS.update_batch_size, -1])
-#        inputb = tf.slice(image_tensor, [0,num_classes*FLAGS.update_batch_size, 0], [-1,-1,-1])
-#        labela = tf.slice(label_tensor, [0,0,0], [-1,num_classes*FLAGS.update_batch_size, -1])
-#        labelb = tf.slice(label_tensor, [0,num_classes*FLAGS.update_batch_size, 0], [-1,-1,-1])
         metaval_input_tensors = {'inputa': inputa, 'inputb': inputb, 'labela': labela, 'labelb': labelb}
 
     model = MAML(dim_input, dim_output, test_num_updates=test_num_updates)
@@ -352,14 +326,15 @@ def main():
             resume_itr = int(model_file[ind1+5:])
             print("Restoring model weights from " + model_file)
             saver.restore(sess, model_file)
-
-    print (flags.FLAGS.__flags)
+    
+    for key in FLAGS.__flags.keys():
+        print ('{:20s}  :  {}'.format(key, getattr(FLAGS, key)))
     print (exp_string)
 
     if FLAGS.train:
         train(model, saver, sess, exp_string, data_generator, resume_itr)
     else:
-        test(model, saver, sess, exp_string, data_generator, test_num_updates)
+        test(model, saver, sess, exp_string, data_generator, test_num_updates, mode='val')
 
 
 if __name__ == "__main__":

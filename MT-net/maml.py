@@ -223,15 +223,15 @@ class MAML:
 
         ## Performance & Optimization
         if 'train' in prefix:
-            self.total_loss1 = total_loss1 = tf.reduce_sum(lossesa) / tf.to_float(FLAGS.meta_batch_size)
-            self.total_losses2 = total_losses2 = [tf.reduce_sum(lossesb[j]) / tf.to_float(FLAGS.meta_batch_size) for j
+            self.total_loss1 = total_loss1 = tf.reduce_mean(lossesa)
+            self.total_losses2 = total_losses2 = [tf.reduce_mean(lossesb[j]) for j
                                                   in range(num_updates)]
             # after the map_fn
             self.outputas, self.outputbs = outputas, outputbs
             if self.classification:
-                self.total_accuracy1 = total_accuracy1 = tf.reduce_sum(accuraciesa) / tf.to_float(FLAGS.meta_batch_size)
+                self.total_accuracy1 = total_accuracy1 = tf.reduce_mean(accuraciesa) 
                 self.total_accuracies2 = total_accuracies2 = [
-                    tf.reduce_sum(accuraciesb[j]) / tf.to_float(FLAGS.meta_batch_size) for j in range(num_updates)]
+                    tf.reduce_mean(accuraciesb[j]) for j in range(num_updates)]
             self.pretrain_op = tf.train.AdamOptimizer(self.meta_lr).minimize( total_loss1)
 
             if FLAGS.metatrain_iterations > 0:
@@ -244,14 +244,13 @@ class MAML:
 
         else:
             self.outputbs = outputbs
-            self.metaval_total_loss1 = total_loss1 = tf.reduce_sum(lossesa) / tf.to_float(FLAGS.meta_batch_size)
-            self.metaval_total_losses2 = total_losses2 = [tf.reduce_sum(lossesb[j]) / tf.to_float(FLAGS.meta_batch_size)
+            self.metaval_total_loss1 = total_loss1 = tf.reduce_mean(lossesa)
+            self.metaval_total_losses2 = total_losses2 = [tf.reduce_mean(lossesb[j]) 
                                                           for j in range(num_updates)]
             if self.classification:
-                self.metaval_total_accuracy1 = total_accuracy1 = tf.reduce_sum(accuraciesa) / tf.to_float(
-                    FLAGS.meta_batch_size)
+                self.metaval_total_accuracy1 = total_accuracy1 = tf.reduce_mean(accuraciesa)
                 self.metaval_total_accuracies2 = total_accuracies2 = [
-                    tf.reduce_sum(accuraciesb[j]) / tf.to_float(FLAGS.meta_batch_size) for j in range(num_updates)]
+                    tf.reduce_mean(accuraciesb[j]) for j in range(num_updates)]
 
         ## Summaries
         tf.summary.scalar(prefix + 'change probs', tf.reduce_mean(self.total_probs))
