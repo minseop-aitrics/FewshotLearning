@@ -15,7 +15,7 @@ import pdb
 #from data_generator import DataGenerator
 #from poly_generator import PolyDataGenerator
 from maml import MAML
-from imbTimgnet_maker import TieredGenerator
+from data_generator_ti import TieredGenerator
 from tensorflow.python.platform import flags
 
 FLAGS = flags.FLAGS

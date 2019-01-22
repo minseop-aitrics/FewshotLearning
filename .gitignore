@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 data/
 MT-net/data
+MT-net/logs
