@@ -67,51 +67,35 @@ class Network(object):
         x = tf.layers.flatten(x)
         return x
 
-    def qH(self, sh, sy, reuse=False):
-        # sh.shape: (nk, hdim)
-        sh = self.dense(sh, self.hdim, name='q1', reuse=reuse)
-        h1 = tf.expand_dims(sh, 2) # (nk, h, 1)
-        h2 = tf.expand_dims(sy, 1) # (nk, 1, n)
-        h3 = h1*h2                 # (nk, h, n)
-        h4 = tf.reduce_sum(sy, 0)  # (n)
-        h4 = tf.reshape(h4, [1,1,self.nway]) # (1,1,n)
-        h = h3 / h4 # (nk,h,n)
-        h = tf.reduce_sum(h, 0) # (h,n)
-        proto_h = tf.transpose(h) # (n, h)
-
+    def qpsi_H(self, sh, reuse=False):
+        # sh.shape : (nk, hdim)
+        h = self.dense(sh, self.hdim, name='q1', reuse=reuse)
+        proto_h = tf.reshape(h, [self.nway, -1, self.hdim])
+        proto_h = tf.reduce_mean(proto_h, axis=1)
         mu_w = tf.nn.elu(self.dense(proto_h, self.hdim, name='qmu', reuse=reuse))
         logsig_w2 = tf.nn.elu(self.dense(proto_h, self.hdim, name='qsig', reuse=reuse))
+        #sig_w = tf.exp(logsig_w2*.5)
         sig_w = tf.clip_by_value(tf.exp(logsig_w2 * .5), 1e-8, 10.)
         return mu_w, sig_w
 
-#    def qpsi_H(self, sh, reuse=False):
-#        # sh.shape : (nk, hdim)
-#        h = self.dense(sh, self.hdim, name='q1', reuse=reuse)
-#        proto_h = tf.reshape(h, [self.nway, -1, self.hdim])
-#        proto_h = tf.reduce_mean(proto_h, axis=1)
-#        mu_w = tf.nn.elu(self.dense(proto_h, self.hdim, name='qmu', reuse=reuse))
-#        logsig_w2 = tf.nn.elu(self.dense(proto_h, self.hdim, name='qsig', reuse=reuse))
-#        #sig_w = tf.exp(logsig_w2*.5)
-#        sig_w = tf.clip_by_value(tf.exp(logsig_w2 * .5), 1e-8, 10.)
-#        return mu_w, sig_w
-
 
 class MLPIP(Network):
-    # single-batch version
-    def __init__(self, name, nway, kshot, qsize, isTr=True, reuse=False):
+    # meta-batch version
+    def __init__(self, name, nway, kshot, qsize, mbsize, isTr=True, reuse=False):
         self.name = name
         self.nway = nway
         self.kshot = kshot
         self.qsize = qsize
+        self.mbsize = mbsize
         self.n_samples = 10
         self.cdim = 64
         self.hdim = 256
 
         self.inputs = {\
-                'sx': tf.placeholder(tf.float32, [None,84,84,3]),
-                'sy': tf.placeholder(tf.float32, [None,nway]),
-                'qx': tf.placeholder(tf.float32, [None,84,84,3]),
-                'qy': tf.placeholder(tf.float32, [None,nway]),
+                'sx': tf.placeholder(tf.float32, [mbsize,None,84,84,3]),
+                'sy': tf.placeholder(tf.float32, [mbsize,None,nway]),
+                'qx': tf.placeholder(tf.float32, [mbsize,None,84,84,3]),
+                'qy': tf.placeholder(tf.float32, [mbsize,None,nway]),
                 'lr': tf.placeholder(tf.float32)}
         self.outputs = {}
 
@@ -120,42 +104,44 @@ class MLPIP(Network):
 
     def _build_network(self, isTr, reuse):
         ip = self.inputs
-        # sx and qx have the same size
-#        x_all = tf.concat([ip['sx'], ip['qx']], axis=0) 
-#        h_all = self.simple_conv(x_all, reuse, isTr)
-#        support_h, query_h = tf.split(h_all, 2)
-        # (sh, sy, qh, qy)  
-        query_h = self.simple_conv(ip['qx'], reuse=reuse, isTr=isTr)
-        support_h = self.simple_conv(ip['sx'], reuse=True, isTr=isTr)
+        # let just feed all of them for batch stats.
+        sx_all = tf.reshape(ip['sx'], [-1,84,84,3]) # (mbsize*nway*kshot, -)
+        qx_all = tf.reshape(ip['qx'], [-1,84,84,3]) # (mbsize*nway*qsize, -)
+        x_all = tf.concat([sx_all, qx_all], axis=0) # (m*n*k+m*n*q, -)
+            
+        # if training mode, moving averages will be saved and batch stats will be used
+        # by all of support and query sets, and  in test mode, just 
+        # m.a will be used. 
+        h_all = self.simple_conv(x_all, reuse, isTr)
+        support_h = h_all[:self.mbsize*self.nway*self.kshot]
+        support_h = tf.reshape(support_h, [self.mbsize, self.nway*self.kshot,-1])
 
-        def mlpip(inputs):
-            sh, sy, qh, qy = inputs
-            mu_ws, sig_ws = self.qH(sh, sy, reuse=reuse)
+        query_h = h_all[self.mbsize*self.nway*self.kshot:]
+        query_h = tf.reshape(query_h, [self.mbsize, self.nway*self.qsize,-1])
+        
+        # for reuse term 
+        _, _ = self.qpsi_H(support_h[0], reuse=reuse)
+
+        def single_batch_process(inputs):
+            sh, qh, qy = inputs # support_h, query_h, qeury_y
+            mu_ws, sig_ws = self.qpsi_H(sh, reuse=True)
             samples = normal(mu_ws, sig_ws).sample(self.n_samples)
             # samples.shape : (n_samples, n, hdim)
             psis = tf.transpose(samples, [0,2,1])
             xs = tf.tile(tf.expand_dims(qh, 0), [self.n_samples,1,1])
-            dist = tf.reduce_mean(tf.matmul(xs, psis), axis=0)
-            pred = tf.nn.softmax(-dist)
-
-#            pred = tf.matmul(qh, tf.transpose(mu_ws))
-#            pred = tf.nn.softmax(-pred)
+#            pred = tf.nn.softmax(tf.matmul(xs, psis))
+#            pred = tf.reduce_mean(pred, axis=0)
+            pred = tf.reduce_mean(tf.matmul(xs, psis), axis=0)
+            pred = tf.nn.softmax(pred)
             loss = cross_entropy(pred, qy)
             acc = tf_acc(pred, qy)
             return loss, acc
 
         def simple_baseline(inputs): 
             # this is for meta-batch prototypical network 
-            sh, sy, qh, qy = inputs
-            # lets get prototype vector
-            h1 = tf.expand_dims(sh, 2) # (nk, h, 1)
-            h2 = tf.expand_dims(sy, 1) # (nk, 1, n)
-            h3 = h1*h2                 # (nk, h, n)
-            h4 = tf.reduce_sum(sy, 0)  # (n)
-            h4 = tf.reshape(h4, [1,1,self.nway]) # (1,1,n)
-            h = h3 / h4 # (nk,h,n)
-            h = tf.reduce_sum(h, 0) # (h,n)
-            proto_vec = tf.transpose(h) # (n, h)
+            sh, qh, qy = inputs
+            proto_vec = tf.reshape(sh, [self.nway, self.kshot, self.hdim])
+            proto_vec = tf.reduce_mean(proto_vec, axis=1)
             _p = tf.expand_dims(proto_vec, axis=0)
             _q = tf.expand_dims(qh, axis=1)
             emb = (_p-_q)**2
@@ -165,7 +151,12 @@ class MLPIP(Network):
             acc = tf_acc(pred, qy)
             return loss, acc
 
-        loss, acc = mlpip((support_h, ip['sy'], query_h, ip['qy']))
+        elems = (support_h, query_h, ip['qy'])
+        out_dtype = (tf.float32, tf.float32)
+
+        loss, acc = tf.map_fn(simple_baseline, elems, dtype=out_dtype,
+                parallel_iterations=self.mbsize)
+
         self.outputs['loss'] = tf.reduce_mean(loss)
         self.outputs['acc'] = acc
 

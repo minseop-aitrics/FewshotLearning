@@ -318,7 +318,7 @@ def main():
     if FLAGS.resume or not FLAGS.train:
         model_file = tf.train.latest_checkpoint(FLAGS.logdir + '/' + exp_string)
         # if you want to use other:
-        # model_file = model_file.replace('59999', '35000')
+        #model_file = model_file.replace('35000', '30000')
         if FLAGS.test_iter > 0:
             model_file = model_file[:model_file.index('model')] + 'model' + str(FLAGS.test_iter)
         if model_file:
@@ -334,7 +334,7 @@ def main():
     if FLAGS.train:
         train(model, saver, sess, exp_string, data_generator, resume_itr)
     else:
-        test(model, saver, sess, exp_string, data_generator, test_num_updates, mode='val')
+        test(model, saver, sess, exp_string, data_generator, test_num_updates)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # 5-way 5-shot miniImagenet test
-# reported result : 63.11 (0.91) 
-# reproduced result : 64.127 (0.721)
+# reported result : 67.37 ± 0.86
+# reproduced result : 
 
 
 gpu=7

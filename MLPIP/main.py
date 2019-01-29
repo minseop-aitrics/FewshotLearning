@@ -4,7 +4,8 @@ import argparse
 import time
 import os
 import pdb
-from lib.episode_generator import EpisodeGenerator
+#from lib.episode_generator import EpisodeGenerator
+from lib.data_generator_ti import TieredGenerator as EpisodeGenerator
 from lib.networks import MLPIP
 
 def parse_args():
@@ -30,20 +31,15 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-def validate(test_net, ep_test):
+def validate(test_net, ep_gen):
     val_losses, val_accs = [], []
     np.random.seed(2)
     for _ in range(args.val_iter):
-        sx, sy, qx, qy = [], [], [], []
-        for _ in range(1): # only one meta-batch at test time
-            sxt, syt, qxt, qyt = ep_test.get_episode(nway, kshot, qsize)
-            sx.append(sxt)
-            sy.append(syt)
-            qx.append(qxt)
-            qy.append(qyt)
+        sx, qx, sy, qy = ep_gen.data_queue('test', 1, nway, kshot=0)
         ip = test_net.inputs
         feed_dict = {\
                 ip['sx']: sx, 
+                ip['sy']: sy,
                 ip['qx']: qx, 
                 ip['qy']: qy}
         op = test_net.outputs
@@ -64,10 +60,6 @@ if __name__=='__main__':
     args = parse_args() 
     print ('='*50) 
     print ('args::') 
-    if args.kshot == 1:
-        args.meta_batch_size = 8
-    if args.kshot == 5:
-        args.meta_batch_size = 4
     for arg in vars(args):
         print ('%15s: %s'%(arg, getattr(args, arg)))
     print ('='*50) 
@@ -76,10 +68,8 @@ if __name__=='__main__':
     kshot = args.kshot
     qsize = args.qsize 
     
-    train_net = MLPIP(args.model_name, nway, kshot, qsize, 
-        args.meta_batch_size)
-
-    test_net = MLPIP(args.model_name, nway, kshot, qsize, mbsize=1,
+    train_net = MLPIP(args.model_name, nway, kshot, qsize)
+    test_net = MLPIP(args.model_name, nway, kshot, qsize,
             isTr=False, reuse=True)
         
     sess = tf.Session() 
@@ -91,8 +81,9 @@ if __name__=='__main__':
         print ('restore from at : {}'.format(args.resume))
         saver.restore(sess, args.resume)
 
-    ep_train = EpisodeGenerator(args.dataset_dir, 'train')
-    ep_test = EpisodeGenerator(args.dataset_dir, 'test')
+#    ep_train = EpisodeGenerator(args.dataset_dir, 'train')
+#    ep_test = EpisodeGenerator(args.dataset_dir, 'test')
+    ep_gen = EpisodeGenerator(0)
 
     vlist = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
     for i, v in enumerate(vlist):
@@ -104,22 +95,15 @@ if __name__=='__main__':
             stt = time.time()
             lr = args.lr if i < 0.7 * args.max_iter else args.lr*.1
 
-            sx = []; sy = []; qx = []; qy = []
-            for _ in range(args.meta_batch_size):
-                sxt, syt, qxt, qyt = ep_train.get_episode(nway, kshot, qsize)
-                sx.append(sxt)
-                sy.append(syt) 
-                qx.append(qxt) 
-                qy.append(qyt)
-
-            # qx : (metabatchsize, nk, img_size)
-            # sx : (metabatchsize, nq, img_size)
+            #sx, sy, qx, qy = ep_train.get_episode(nway, kshot, qsize)
+            sx, qx, sy, qy = ep_gen.data_queue('train', 1, nway, kshot)
+            # qx : (nk, img_size)
+            # sx : (nq, img_size)
             ip = train_net.inputs
-            feed_dict = {ip['sx']: sx, 
+            feed_dict = {ip['sx']: sx, ip['sy']: sy,
                     ip['qx']: qx, ip['qy']: qy, ip['lr']: lr}
             op = train_net.outputs
             run_list = [op['acc'], op['loss'], train_net.train_op]
-
             
             acc, loss, _ = sess.run(run_list, feed_dict)
             avger += [np.mean(acc), loss, 0, time.time() - stt]
@@ -136,9 +120,7 @@ if __name__=='__main__':
                     .format(avger[0], 
                         avger[1], lr, avger[3]*args.show_step))
                 avger[:] = 0
-                validate(test_net, ep_test)
-
-
+                validate(test_net, ep_gen)
 
             if i % args.save_step == 0 and i != 0: 
                 out_loc = os.path.join(args.model_dir, # models/
@@ -147,4 +129,4 @@ if __name__=='__main__':
                 print ('saved at : {}'.format(out_loc))
                 saver.save(sess, out_loc)
     else: # if test only
-        validate(test_net, ep_test)
+        validate(test_net, ep_gen)

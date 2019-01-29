@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-num_step=3
-kshot=5
+num_step=5
+kshot=0
 
 CUDA_VISIBLE_DEVICES=1 python main.py \
     --datasource=miniimagenet --metatrain_iterations=60000 \
