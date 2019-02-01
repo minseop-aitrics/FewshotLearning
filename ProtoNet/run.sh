@@ -1,15 +1,16 @@
-gpu=6
+gpu=5
 W=5 # n-way 
-S=5 # k-shot
-name=${W}w${S}s_protonet_baseline
-log="models/${name}/log.txt"
-mkdir -p models/${name}
+S=1 # k-shot
+data="tieredImagenet"
+name=${W}w${S}s_protonet_${data}
+log="../models/${name}/log.txt"
+mkdir -p ../models/${name}
 
 # to get test result, uncomment last line
-echo $log
-exec &> >(tee -a "$log")
+#echo $log
+#exec &> >(tee -a "$log")
 CUDA_VISIBLE_DEVICES=$gpu python -u main.py \
-    --nw $W --ks $S --name $name --data ../miniImagenet \
+    --nw $W --ks $S --name $name --data ../data_npy/${data} \
     #--pr 1 --train 0 --vali 600
 
 
