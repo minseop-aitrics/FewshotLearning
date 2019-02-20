@@ -152,7 +152,7 @@ def test(model, saver, sess, exp_string, data_generator, test_num_updates=None, 
 #    np.random.seed(1)
 #    random.seed(1)
     metaval_accuracies = []
-    print_test_class_acc = False
+    print_test_class_acc = True
     
     per_class_acc = np.zeros([len(data_generator.get_dataset(mode)), 2])
     per_class_avg = []
@@ -172,9 +172,12 @@ def test(model, saver, sess, exp_string, data_generator, test_num_updates=None, 
 
             tmp_result = [np.mean(right[y==n]) for n in range(num_classes)]
             per_class_avg.append(np.mean(tmp_result))
-            
-            per_class_acc[task_ind, 1] += 1
-            per_class_acc[task_ind[right], 0] += 1
+                
+            for ti in range(len(task_ind)):
+                per_class_acc[task_ind[ti], 1] += 1
+                per_class_acc[task_ind[ti], 0] += int(right[ti])
+#            per_class_acc[task_ind, 1] += 1
+#            per_class_acc[task_ind[right], 0] += 1
     
     np.set_printoptions(4)
     if print_test_class_acc:
