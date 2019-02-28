@@ -32,11 +32,9 @@ class EpisodeGenerator():
         self.y_all = []
         self.dataset_size = DATASET_SIZE
         self.phase = phase
-        print (self.dataset_list)
         for i, dname in enumerate(self.dataset_list): 
             load_dir = os.path.join(data_dir, phase+'.npy')
             self.dataset[dname] = np.load(load_dir)
-        pdb.set_trace()
         
     def get_episode(self, nway, kshot, qsize, 
             dataset_name=None, 

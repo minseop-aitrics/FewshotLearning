@@ -1,7 +1,7 @@
 gpu=5
 W=5 # n-way 
 S=1 # k-shot
-data="tieredImagenet"
+data="miniImagenet_cy"
 name=${W}w${S}s_protonet_${data}
 log="../models/${name}/log.txt"
 mkdir -p ../models/${name}
